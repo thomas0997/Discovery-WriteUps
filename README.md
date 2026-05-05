@@ -1,1 +1,1 @@
-# CTF-Discovery-WriteUps
+# Thomas-Discovery-Writeups
