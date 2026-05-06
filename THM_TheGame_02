@@ -1,0 +1,42 @@
+# Game Hacking – TryHackMe Writeup
+
+## The Game (Easy)
+
+Honestly, this one was simpler than I made it out to be — I just got in my own way at first.
+
+---
+
+## Steps
+
+### 1. Downloading the File
+
+After downloading the task file, the challenge hinted at decoding something from the source code. My first instinct was to throw it into **DNSpy** and poke around. I went through every file I could find in there and came up empty. Nothing stood out, no obvious strings, no hidden flags.
+
+### 2. Overthinking It
+
+At that point I took a step back and thought about what I was actually doing. I was overcomplicating a challenge that was literally labeled **Easy**. So I switched over to Kali and kept it simple — ran a basic `strings` search on the file instead.
+
+### 3. Finding the Flag
+
+From there I just used `grep` to filter for anything that looked relevant. I searched for keywords like:
+
+- `Cipher`
+- `Flag`
+- `thm`
+- `Security`
+
+The flag showed up almost immediately.
+
+---
+
+## Flag
+
+```
+THM{I_CAN_READ_IT_ALL}
+```
+
+---
+
+## Takeaway
+
+Don't jump straight to the heavy tools. A simple `strings` command and `grep` would have gotten me there in under a minute if I hadn't second-guessed myself. Sometimes the easy challenges are easy for a reason.
