@@ -1,0 +1,323 @@
+# Nextcloud Homelab Documentation
+
+## Goal
+
+Replace Google Photos and Google Drive with a self-hosted alternative running on a repurposed laptop. Full control over personal files and photos, no third-party cloud dependency.
+
+---
+
+## Hardware
+
+| Component | Details |
+|---|---|
+| Primary Server | Asus Vivobook S15 S530U (2018) — Intel Core i5-8250U, 8GB RAM |
+| Storage | WD Blue 1TB 2.5" SATA HDD (9mm), ~$45–60 |
+| Test Machine | Old Acer Laptop |
+| Installation Media | USB Flash Drive |
+| OS | Ubuntu Server 22.04 LTS |
+| Tools | Balena Etcher |
+
+---
+
+## Software Stack
+
+| Layer | Software |
+|---|---|
+| OS | Ubuntu Server 22.04 LTS |
+| Web Server | Apache 2.4.52 |
+| Database | MySQL |
+| PHP | 8.2 |
+| App | Nextcloud (latest) |
+
+---
+
+## Project Scope
+
+- **Phase 1** — Install Ubuntu Server on the Vivobook
+- **Phase 2** — Install and configure Nextcloud
+- **Phase 3** — Local network access
+- **Phase 4** — Remote access with security hardening
+
+**Storage plan:** ~300GB for Nextcloud, 1TB+ reserved for Jellyfin media server.
+
+---
+
+## Installation Steps
+
+### 1. Create Bootable USB
+
+1. Download Ubuntu Server 22.04 LTS ISO
+2. Flash it to a USB drive using Balena Etcher
+3. The flash drive may appear as two drives in Windows — this is normal
+
+### 2. Prepare the Vivobook
+
+1. Plug in the USB drive
+2. Power on and press `F2` to enter BIOS
+3. Set USB as first boot priority
+4. Save and exit — Ubuntu installer will launch
+
+### 3. Ubuntu Installation
+
+1. Select language and keyboard layout
+2. Configure network (or skip — can be done post-install)
+3. Select "Erase disk and install Ubuntu" for a clean install
+4. Complete installation and reboot
+
+### 4. Install Dependencies
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install apache2 mysql-server -y
+```
+
+### 5. Install PHP 8.2
+
+Ubuntu 22.04 ships with PHP 8.1, but Nextcloud requires 8.2. Add the Ondrej PPA:
+
+```bash
+sudo add-apt-repository ppa:ondrej/php
+sudo apt update
+sudo apt install php8.2 php8.2-mysql php8.2-xml php8.2-curl php8.2-gd \
+  php8.2-mbstring php8.2-zip php8.2-intl php8.2-bcmath php8.2-imagick -y
+```
+
+Switch Apache to PHP 8.2:
+
+```bash
+sudo a2dismod php8.1
+sudo a2enmod php8.2
+sudo systemctl restart apache2
+```
+
+### 6. Set Up the Database
+
+```bash
+sudo mysql -u root
+```
+
+Inside MySQL:
+
+```sql
+CREATE DATABASE nextcloud;
+CREATE USER 'nextclouduser'@'localhost' IDENTIFIED BY 'your-strong-password';
+GRANT ALL PRIVILEGES ON nextcloud.* TO 'nextclouduser'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+> **Security note:** Use a strong, unique password. Do not use `password123` or any simple placeholder in production.
+
+### 7. Download and Install Nextcloud
+
+```bash
+cd /var/www/html
+sudo wget https://download.nextcloud.com/server/releases/latest.tar.bz2
+sudo tar -xjf latest.tar.bz2
+sudo chown -R www-data:www-data /var/www/html/nextcloud
+sudo chmod -R 755 /var/www/html/nextcloud
+```
+
+### 8. Configure Apache
+
+Create a virtual host config:
+
+```bash
+sudo nano /etc/apache2/sites-available/nextcloud.conf
+```
+
+Add:
+
+```apache
+<VirtualHost *:80>
+    ServerName 192.168.1.100
+    DocumentRoot /var/www/html/nextcloud
+
+    <Directory /var/www/html/nextcloud>
+        Options +FollowSymlinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
+```
+
+Enable the site and required modules:
+
+```bash
+sudo a2dissite 000-default.conf
+sudo a2ensite nextcloud.conf
+sudo a2enmod rewrite headers env dir mime
+sudo systemctl restart apache2
+```
+
+### 9. Make Services Persistent
+
+```bash
+sudo systemctl enable apache2
+sudo systemctl enable mysql
+```
+
+### 10. Configure a Static IP (Netplan)
+
+Make network settings survive reboots:
+
+```bash
+sudo nano /etc/netplan/00-installer-config.yaml
+```
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    enx6c11f764de12:
+      dhcp4: no
+      addresses:
+        - 192.168.1.100/24
+      routes:
+        - to: default
+          via: 192.168.1.1
+      nameservers:
+        addresses:
+          - 192.168.1.1
+```
+
+Set correct permissions and apply:
+
+```bash
+sudo chmod 600 /etc/netplan/00-installer-config.yaml
+sudo netplan apply
+```
+
+### 11. Access Nextcloud
+
+Open a browser on any device on the same network and go to:
+
+```
+http://192.168.1.100
+```
+
+Complete the web setup wizard using the database credentials from Step 6.
+
+---
+
+## Troubleshooting Log
+
+### Issue 1 — Ubuntu Installer Crashed at Final Step
+
+**Symptom:** "Problem completing installation" on first and second attempt with two different USB drives.
+
+**Diagnosis:** GNU GRUB appeared post-crash, confirming a partial install. Windows still booted when USB was removed — no data loss. Eventually traced to the original internal HDD failing, not the USB drive. The installer crashed specifically during heavy disk write operations.
+
+**Root cause:** The original 1.8TB HDD inside the Vivobook was failing. Windows had previously misreported it as an SSD due to severe drive degradation. An Intel Optane M10 16GB cache module was found in the M.2 slot and was not the primary drive.
+
+**Fix:** Replaced with a WD Blue 1TB 2.5" SATA HDD.
+
+**Lesson:** When an installer crashes during disk writes, suspect storage hardware before trying software fixes.
+
+---
+
+### Issue 2 — Network Unreachable After Install (Acer)
+
+**Symptom:** Ubuntu Server installed fine on the Acer, but network was unreachable.
+
+**Fix:**
+
+```bash
+sudo ip addr add 192.168.1.100/24 dev enp4s0
+sudo ip route add default via 192.168.1.1
+```
+
+Ping to `8.8.8.8` worked, but `ping google.com` failed — DNS resolution was broken.
+
+**Root cause:** `systemd-resolved` kept overwriting `/etc/resolv.conf` with `127.0.0.53`, a non-functional local stub. External DNS (UDP port 53) was also being blocked by the router.
+
+**Fix:** Use the router's own DNS instead of external servers.
+
+```bash
+echo "nameserver 192.168.1.1" | sudo tee /etc/resolv.conf
+sudo chattr +i /etc/resolv.conf
+```
+
+**Lesson:** If external DNS is blocked, use the router IP as the nameserver. It handles resolution internally.
+
+---
+
+### Issue 3 — DNS Issues Persisted on Ubuntu 24.04
+
+**Symptom:** DNS problems occurred on both laptops running Ubuntu 24.04, even after the above fixes.
+
+**Root cause:** Ubuntu 24.04 has a known compatibility issue with certain routers and ISP configurations around DNS and network management.
+
+**Fix:** Downgraded to Ubuntu Server 22.04 LTS. DNS worked immediately with no extra configuration.
+
+**Lesson:** For homelab servers, prefer the current LTS release over the latest version. Stability matters more than new features.
+
+---
+
+### Issue 4 — Network Settings Reset on Every Reboot (Vivobook)
+
+**Symptom:** IP, gateway, and DNS were all gone after each reboot.
+
+**Root cause:** Settings were applied manually per session and not persisted via Netplan.
+
+**Fix:** Configured Netplan with a static IP (see Step 10 above). The interface name `enx6c11f764de12` is MAC-address-based, which is normal behavior in Ubuntu for USB ethernet adapters.
+
+---
+
+### Issue 5 — `sudo apt install nextcloud-server` Failed
+
+**Symptom:** "Unable to locate package nextcloud-server"
+
+**Root cause:** Nextcloud is not in Ubuntu's default package repositories.
+
+**Fix:** Download and install manually from nextcloud.com (see Steps 5–8).
+
+---
+
+### Issue 6 — Apache Showed Default Page
+
+**Symptom:** Browser showed the Apache default page instead of Nextcloud.
+
+**Fix:**
+
+```bash
+sudo a2dissite 000-default.conf
+sudo systemctl restart apache2
+```
+
+---
+
+### Issue 7 — 404 Not Found After Disabling Default Site
+
+**Symptom:** Disabling the default site resulted in a 404 error.
+
+**Root cause:** The Nextcloud VirtualHost config was missing or had the wrong server IP.
+
+**Fix:** Corrected `/etc/apache2/sites-available/nextcloud.conf` and enabled required Apache modules (see Step 8).
+
+---
+
+### Issue 8 — PHP Version Too Old
+
+**Symptom:** Nextcloud setup page showed: "This version of Nextcloud requires at least PHP 8.2. You are currently running 8.1."
+
+**Fix:** Installed PHP 8.2 via the Ondrej PPA and switched Apache to use it (see Step 5).
+
+---
+
+## Key Lessons
+
+1. **Check hardware first.** Repeated installer crashes during disk writes almost always mean failing storage, not a bad ISO or USB drive.
+2. **Use Ubuntu 22.04 LTS for homelabs.** Newer releases introduce compatibility problems with routers and older hardware.
+3. **Use the router as your DNS.** If external DNS is blocked, `192.168.1.1` handles resolution internally.
+4. **Nextcloud is not in the default repos.** It must be downloaded and installed manually.
+5. **Netplan permissions matter.** The config file must be `chmod 600` or Netplan will refuse to apply it.
+6. **YAML is whitespace-sensitive.** Every indentation in Netplan config must use spaces, never tabs, and must be exact.
+
+---
+
+## Current Status
+
+Nextcloud is installed and accessible on the local network at `http://192.168.1.100`. Network settings are now persistent across reboots via Netplan.
+
+---
