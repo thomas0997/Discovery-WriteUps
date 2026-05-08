@@ -1,0 +1,71 @@
+# TryHackMe: Neighbour — Writeup
+
+## Overview
+
+This room introduces a deliberately vulnerable web application called "Authentication Anywhere." The premise is straightforward: a cloud-based login service where users authenticate with a username and password. The underlying challenge, however, is about understanding how poor access control on the server side can allow an attacker to view another user's private profile data. This is a classic example of an Insecure Direct Object Reference (IDOR) vulnerability.
+
+---
+
+## Reconnaissance
+
+Upon navigating to the machine's IP address, I was greeted with a standard login page prompting for a username and password.
+
+My first instinct was to test for SQL injection — entering payloads like `' OR 1=1 --` into the login fields. That did not get me anywhere. I also tried manipulating the URL directly, but again, nothing came of it.
+
+At that point, I decided to take a step back and look at the page source. This is a habit worth building early: developers often leave comments or hints in the HTML that were never meant to be seen in production.
+
+---
+
+## Finding the Credentials in the Source Code
+
+Viewing the page source revealed the following HTML comment buried near the bottom of the login form:
+
+```
+<!-- use guest:guest credentials until registration is fixed. "admin" user account is off limits!!!!! -->
+```
+
+This single comment gave away two things: valid credentials to log in with, and the existence of an admin account. The developer essentially left a sticky note in the source code.
+
+---
+
+## Logging In and Spotting the IDOR
+
+Using `guest` as both the username and password, I was able to log in successfully. After authentication, I was redirected to my profile page at the following URL:
+
+```
+http://TARGET_IP/profile.php?user=guest
+```
+
+This is where the vulnerability became immediately obvious. The application was identifying which user's profile to display based on a plain-text `user` parameter in the URL — with no server-side check to verify whether the logged-in session actually belonged to that user.
+
+In other words, the application trusted the client to tell it who was logged in. That is the definition of an IDOR vulnerability.
+
+---
+
+## Exploiting the IDOR
+
+All that was needed was to change `guest` to `admin` in the URL:
+
+```
+http://TARGET_IP/profile.php?user=admin
+```
+
+The server served up the admin's profile without any resistance. No re-authentication, no authorization check — nothing. The page displayed the flag directly:
+
+```
+flag{66be95c478473d91a5358f2440c7af1f}
+```
+
+---
+
+## Summary
+
+This room demonstrates two separate but related security failures:
+
+**Sensitive information in source code** — A developer left credentials in an HTML comment that anyone could read by pressing Ctrl+U. Comments in client-side code are visible to everyone and should never contain credentials, internal notes about accounts, or anything that could assist an attacker.
+
+**Insecure Direct Object Reference (IDOR)** — The application exposed a direct reference to a user record (`?user=guest`) and relied entirely on the client to supply the correct value. There was no server-side verification that the session belonged to the requested user. Any authenticated user could access any other user's profile simply by changing the parameter.
+
+The fix for the first issue is straightforward: never put sensitive information in HTML comments. The fix for the second is to implement proper authorization checks on the server — verifying that the session token matches the requested resource before returning any data.
+
+Overall, a clean beginner-level room that does a good job of illustrating how small oversights can lead to significant data exposure.
