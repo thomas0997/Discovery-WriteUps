@@ -143,7 +143,7 @@ This project ran into a significant number of issues. Each one is documented bel
 network:
   version: 2
   ethernets:
-    [your-interface-name]:
+    [interface-name]:
       dhcp4: no
       addresses:
         - 192.168.1.x/24
@@ -163,7 +163,7 @@ sudo netplan apply
 
 Network settings persisted across all subsequent reboots.
 
-**Note:** Replace `[your-interface-name]` with your actual interface name (visible via `ip link show`) and choose a static IP that does not conflict with other devices on your network.
+**Note:** Replace `[interface-name]` with your actual interface name (visible via `ip link show`) and choose a static IP that does not conflict with other devices on your network.
 
 ---
 
