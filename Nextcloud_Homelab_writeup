@@ -163,7 +163,7 @@ sudo netplan apply
 
 Network settings persisted across all subsequent reboots.
 
-**Note:** Replace `[interface-name]` with your actual interface name (visible via `ip link show`) and choose a static IP that does not conflict with other devices on your network.
+
 
 ---
 
@@ -198,7 +198,7 @@ sudo systemctl restart apache2
 
 **Root cause:** The Nextcloud virtual host configuration had not been properly activated, and required Apache modules were not enabled.
 
-**Resolution:** Updated the Nextcloud site configuration with the correct document root and server address, then enabled the required Apache modules:
+**Resolution:** Updated the Nextcloud site configuration with the correct document root and server address, then enotenabled the required Apache modules:
 
 ```bash
 sudo a2enmod rewrite headers env dir mime
