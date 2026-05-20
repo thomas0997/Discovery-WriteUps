@@ -1,0 +1,126 @@
+# TryHackMe — Corridor
+
+**Category:** Web Exploitation  
+**Vulnerability:** Insecure Direct Object Reference (IDOR)  
+**Difficulty:** Easy  
+
+---
+
+## Table of Contents
+
+- [Challenge Description](#challenge-description)
+- [Reconnaissance](#reconnaissance)
+- [Analysis](#analysis)
+- [Exploitation](#exploitation)
+- [Flag](#flag)
+- [Key Takeaways](#key-takeaways)
+
+---
+
+## Challenge Description
+
+> *You have found yourself in a strange corridor. Can you find your way back to where you came?*
+
+The room tasks you with exploring potential IDOR vulnerabilities by examining URL endpoints as you navigate the website. The hint points to hexadecimal values in the URLs that resemble hashes, which may expose locations you were not intended to access.
+
+---
+
+## Reconnaissance
+
+The first instinct was to run a directory brute-force against the target machine using `gobuster`:
+
+```bash
+gobuster dir -u http://TARGETMACHINE -w /usr/share/SecLists/Discovery/Web-Content/directory-list-2.3-medium.txt
+```
+
+This did not return any useful results. The next step was to inspect the page source directly.
+
+---
+
+## Analysis
+
+Inside the page source, a series of MD5-style hashes were found embedded in an image map (`<map>` element). Each hash was used as both the `alt`, `title`, and `href` attribute of clickable `<area>` tags corresponding to the doors in the corridor image.
+
+**Sample source excerpt:**
+
+```html
+<area target="" alt="c4ca4238a0b923820dcc509a6f75849b"
+      title="c4ca4238a0b923820dcc509a6f75849b"
+      href="c4ca4238a0b923820dcc509a6f75849b"
+      coords="257,893,258,332,325,351,325,860" shape="poly">
+
+<area target="" alt="c81e728d9d4c2f636f067f89cc14862c"
+      title="c81e728d9d4c2f636f067f89cc14862c"
+      href="c81e728d9d4c2f636f067f89cc14862c"
+      coords="469,766,503,747,501,405,474,394" shape="poly">
+
+<area target="" alt="eccbc87e4b5ce2fe28308fd9f2a7baf3"
+      title="eccbc87e4b5ce2fe28308fd9f2a7baf3"
+      href="eccbc87e4b5ce2fe28308fd9f2a7baf3"
+      coords="585,698,598,691,593,429,584,421" shape="poly">
+```
+
+Using an online MD5 decryption tool ([10015.io](https://10015.io/tools/md5-encrypt-decrypt)), each hash was found to decrypt to an integer:
+
+| Hash | Decrypted Value |
+|------|----------------|
+| `c4ca4238a0b923820dcc509a6f75849b` | 1 |
+| `c81e728d9d4c2f636f067f89cc14862c` | 2 |
+| `eccbc87e4b5ce2fe28308fd9f2a7baf3` | 3 |
+| `a87ff679a2f3e71d9181a67b7542122c` | 4 |
+| `e4da3b7fbbce2345d7772b0674a318d5` | 5 |
+| `1679091c5a880faf6fb5e6087eb1b2dc` | 6 |
+| `8f14e45fceea167a5a36dedd4bea2543` | 7 |
+| `c9f0f895fb98ab9159f51fd0297e236d` | 8 |
+| `45c48cce2e2d7fbdea1afc51c7c6ad26` | 9 |
+| `d3d9446802a44259755d38e6d163e820` | 10 |
+| `6512bd43d9caa6e02c990b0a82652dca` | 11 |
+| `c20ad4d76fe97759aa27a0c99bff6710` | 12 |
+| `c51ce410c124a10e0db5e4b97fc2af39` | 13 |
+
+The rooms in the corridor map directly to sequential natural numbers (1 through 13). This is a textbook IDOR pattern — the server uses a predictable identifier (here, an MD5 hash of an integer) to control access to resources.
+
+---
+
+## Exploitation
+
+The in-room hint reads:
+
+> *Where do those doors take you? The numbers and letters seem to follow a pattern...*
+
+With the pattern identified, the next step was to test edge cases outside the expected range. The goal was to access a room that should not be reachable through the normal UI.
+
+**Attempts:**
+
+1. Navigating to the MD5 hash of `-1` (`6bb61e3b7bce0931da574d19d1d82c88`) returned a **404 Not Found**.
+2. Navigating to the MD5 hash of `0` (`cfcd208495d565ef66e7dff9f98764da`) returned the **flag**.
+
+The server failed to validate that `0` was an out-of-bounds room, exposing content that was not intended to be accessible.
+
+**To reproduce:**
+
+1. Generate the MD5 hash of `0`:
+   ```
+   cfcd208495d565ef66e7dff9f98764da
+   ```
+2. Navigate to:
+   ```
+   http://TARGETMACHINE/cfcd208495d565ef66e7dff9f98764da
+   ```
+
+---
+
+## Flag
+
+```
+flag{2477ef02448ad9156661ac40a6b8862e}
+```
+
+---
+
+## Key Takeaways
+
+- **IDOR vulnerabilities** do not always involve simple numeric IDs. Hashing the ID (e.g., with MD5) provides no real security if the underlying value is predictable.
+- **Page source inspection** is a critical first step — directory brute-forcing alone is not sufficient for every challenge.
+- **Edge case testing** (values like `0`, `-1`, or very large integers) is an effective technique when you identify a sequential ID pattern.
+- MD5 is not an access control mechanism. It is a hashing algorithm, not encryption, and common values are trivially reversible using lookup tables or online tools.
